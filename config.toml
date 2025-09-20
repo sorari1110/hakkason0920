@@ -13,7 +13,7 @@ gsheet_id = "1nJim_Bz9nrUyQrAoVNPAQ-nGn9eN_s5Ku1MEf7BnX9M/edit?gid=0#gid=0"
 
 # 提供者が指定する候補（あとからここを書き換えるだけでOK）
 allowed_dates = ["2025-10-25", "2025-10-26"]
-allowed_places = ["メインステージ","アルカイゾ","ダンス練習場","調理室","レッスンルーム"]
+allowed_places = ["メインステージ","小ホール","大ホール"]
 
 # 固定の時間軸
 day_start = "09:00"
