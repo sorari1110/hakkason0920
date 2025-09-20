@@ -9,7 +9,7 @@ token_uri = "https://oauth2.googleapis.com/token"
 
 [app]
 # Google スプレッドシートの URL の /d/<この部分>/ が ID
-gsheet_id = "<YOUR_SHEET_ID>"
+gsheet_id = "1nJim_Bz9nrUyQrAoVNPAQ-nGn9eN_s5Ku1MEf7BnX9M/edit?gid=0#gid=0"
 
 # 提供者が指定する候補（あとからここを書き換えるだけでOK）
 allowed_dates = ["2025-10-25", "2025-10-26"]
