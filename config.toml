@@ -1,0 +1,20 @@
+[gcp_service_account]
+type = "service_account"
+project_id = "..."
+private_key_id = "..."
+private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+client_email = "xxxx@xxxx.iam.gserviceaccount.com"
+client_id = "..."
+token_uri = "https://oauth2.googleapis.com/token"
+
+[app]
+# Google スプレッドシートの URL の /d/<この部分>/ が ID
+gsheet_id = "<YOUR_SHEET_ID>"
+
+# 提供者が指定する候補（あとからここを書き換えるだけでOK）
+allowed_dates = ["2025-10-25", "2025-10-26"]
+allowed_places = ["メインステージ","アルカイゾ","ダンス練習場","調理室","レッスンルーム"]
+
+# 固定の時間軸
+day_start = "09:00"
+day_end   = "18:00"
