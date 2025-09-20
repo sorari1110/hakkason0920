@@ -1,15 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-施設利用希望フォーム（第1〜第3希望/必須）→ Google Sheets に蓄積 →
-管理画面から『日付ごとにファイル』『場所ごとにシート』構成の Excel を生成（ガントチャート風）。
-
-想定：
-- 時間軸は固定（例: 09:00〜18:00、15分刻み）
-- セル塗りつぶしは『利用者ごとに色分け』
-- セル内テキストは『第n希望』を表示
-
-必要パッケージ： streamlit, pandas, numpy, plotly, gspread, google-auth, openpyxl, pytz
-"""
 
 import hashlib
 from datetime import datetime
@@ -75,9 +64,6 @@ def name_to_color(name: str) -> str:
 def append_rows(ws, rows: list[list[str]]):
     ws.append_rows(rows, value_input_option="USER_ENTERED")
 
-@st.cache_data(ttl=30, show_spinner=False)
-def load_df() -> pd.DataFrame:
-    ws = get_worksheet()
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
@@ -214,7 +200,7 @@ with user_tab:
 
 with admin_tab:
     st.subheader("データ一覧（最新）")
-    df = load_df()
+
     st.dataframe(df, use_container_width=True)
 
     st.divider()
