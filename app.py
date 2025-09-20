@@ -28,16 +28,26 @@ GSHEET_ID = APP_SECRETS.get("gsheet_id", "")
 # =============== Google Sheets 接続 ===============
 @st.cache_resource(show_spinner=False)
 def get_worksheet():
-    creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]))
-    scoped = creds.with_scopes(["https://www.googleapis.com/auth/spreadsheets"])
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
+    scoped = creds.with_scopes([
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ])
     gc = gspread.authorize(scoped)
-    sh = gc.open_by_key(GSHEET_ID)
+
+    try:
+        sh = gc.open_by_key(GSHEET_ID)
+    except Exception as ex:
+        st.error(f"スプレッドシートを開けませんでした。GSHEET_ID={GSHEET_ID}, Error={ex}")
+        raise
+
     try:
         ws = sh.worksheet("data")
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title="data", rows=1000, cols=10)
-        ws.append_row(["timestamp", "user_name", "date", "place", "start", "end", "priority"])  # ヘッダー
+        ws.append_row(["timestamp", "user_name", "date", "place", "start", "end", "priority"])
     return ws
+
 
 # =============== ユーティリティ ===============
 def time_slots(day_start: str, day_end: str, step_min: int = 15) -> List[str]:
