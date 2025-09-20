@@ -1,0 +1,13 @@
+# テキストファイルはすべて LF に統一
+* text=auto eol=lf
+
+# Windows専用のバッチファイルなどは CRLF を維持
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# JSONやソースコードも LF に固定
+*.json text eol=lf
+*.java text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
