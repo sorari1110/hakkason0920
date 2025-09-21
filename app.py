@@ -3,7 +3,6 @@ import hashlib
 from datetime import datetime
 from typing import List
 
-import numpy as np
 import pandas as pd
 import pytz
 import streamlit as st
@@ -35,12 +34,7 @@ def get_worksheet():
     ])
     gc = gspread.authorize(scoped)
 
-    try:
-        sh = gc.open_by_key(GSHEET_ID)
-    except Exception as ex:
-        st.error(f"スプレッドシートを開けませんでした。GSHEET_ID={GSHEET_ID}, Error={ex}")
-        raise
-
+    sh = gc.open_by_key(GSHEET_ID)
     try:
         ws = sh.worksheet("data")
     except gspread.WorksheetNotFound:
@@ -79,12 +73,10 @@ def load_df() -> pd.DataFrame:
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
-
         df = pd.DataFrame(columns=[
             "timestamp", "group_name", "rep_name", "faculty", "email", "phone",
             "date", "place", "start", "end", "priority", "remarks"
         ])
-
     for c in ["date", "start", "end"]:
         if c in df.columns:
             df[c] = df[c].astype(str)
@@ -115,7 +107,6 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
         users = df_p["group_name"].dropna().unique().tolist()
-
         for r, user in enumerate(users, start=2):
             ws.cell(row=r, column=1, value=user)
             ws.cell(row=r, column=1).alignment = Alignment(vertical="center")
@@ -128,28 +119,19 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
 
             for _, rec in sub.iterrows():
                 start, end, pr = str(rec["start"]), str(rec["end"]), int(rec["priority"])
-
                 try:
                     start = pd.to_datetime(start).strftime("%H:%M")
                     end = pd.to_datetime(end).strftime("%H:%M")
                 except Exception:
                     continue
-
-
                 if not validate_range(start, end):
                     continue
                 try:
                     s_idx = SLOTS.index(start)
                     e_idx = SLOTS.index(end)
                 except ValueError:
-
                     continue
-
-
-                start_col = 2 + s_idx
-                end_col_exclusive = 2 + e_idx
-
-                for c in range(start_col, end_col_exclusive):
+                for c in range(2 + s_idx, 2 + e_idx):
                     cell = ws.cell(row=r, column=c)
                     cell.fill = fill
                     label = f"第{pr}希望"
@@ -162,7 +144,7 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
                 cell.border = border_thin
         ws.column_dimensions['A'].width = 18
         for col in range(2, len(SLOTS) + 2):
-            ws.column_dimensions[get_column_letter(col)].width = 4.2
+            ws.column_dimensions[get_column_letter(col)].width = 15  # 列幅修正
 
     out_name = f"{date_str.replace('-', '')}.xlsx"
     wb.save(out_name)
@@ -176,43 +158,45 @@ ws = get_worksheet()
 
 user_tab, admin_tab = st.tabs(["📝 利用者フォーム", "🛠 管理（一覧・Excel出力）"])
 
+# --- 利用者フォーム ---
 with user_tab:
-    st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。\n"
-               "時間は準備・撤収も含めて設定してください。")
+    if "submitted" not in st.session_state:
+        st.session_state["submitted"] = False
+        st.session_state["submitted_payload"] = None
+
+    if st.session_state["submitted"]:
+        st.success("送信が完了しました。ご協力ありがとうございます！")
+        name_sent, hopes = st.session_state["submitted_payload"]
+        st.write(f"**団体名：** {name_sent}")
+        df_sent = pd.DataFrame(
+            [{"第": f"第{pr}希望", "日付": d, "場所": p, "開始": s, "終了": e} for (d, p, s, e, pr) in hopes]
+        )
+        st.dataframe(df_sent, use_container_width=True)
+        if st.button("新しい申請をする"):
+            for k in list(st.session_state.keys()):
+                if k.startswith(("date_", "place_", "start_", "end_")):
+                    del st.session_state[k]
+            st.session_state["submitted"] = False
+            st.session_state["submitted_payload"] = None
+            st.rerun()
+        st.stop()
+
+    st.caption("※ 第1〜第3希望は必須です。時間は15分刻みで選択してください。\n準備・撤収も含めて設定してください。")
 
     group_name = st.text_input("団体名（必須）", key="group_name_input")
-
-    st.markdown("#### 代表者情報")
-    rep_name = st.text_input("代表者氏名（必須）", key="rep_name_input")
-    faculty  = st.text_input("学部（必須）", key="faculty_input")
-    email    = st.text_input("メールアドレス（必須）", key="email_input")
-    phone    = st.text_input("電話番号（必須）", key="phone_input")
-
-    remarks = st.text_area(
-        "希望理由・備考（任意）",
-        placeholder="希望理由や備考があれば入力してください",
-        height=120,
-        key="remarks_input"
-    )
-
-    remarks = st.text_area(
-    "希望理由・備考（任意）",
-    placeholder="希望理由や備考があれば入力してください",
-    height=120
-    )
-
+    rep_name   = st.text_input("代表者氏名（必須）", key="rep_name_input")
+    faculty    = st.text_input("学部（必須）", key="faculty_input")
+    email      = st.text_input("メールアドレス（必須）", key="email_input")
+    phone      = st.text_input("電話番号（必須）", key="phone_input")
+    remarks    = st.text_area("希望理由・備考（任意）", height=120, key="remarks_input")
 
     def hope_block(title: str):
         st.subheader(title)
         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
-        with c1:
-            sel_date = st.selectbox("日付", ALLOWED_DATES, key=f"date_{title}")
-        with c2:
-            sel_place = st.selectbox("場所", ALLOWED_PLACES, key=f"place_{title}")
-        with c3:
-            start = st.selectbox("開始", SLOTS[:-1], key=f"start_{title}")
-        with c4:
-            end = st.selectbox("終了", SLOTS[1:], key=f"end_{title}")
+        with c1: sel_date = st.selectbox("日付", ALLOWED_DATES, key=f"date_{title}")
+        with c2: sel_place = st.selectbox("場所", ALLOWED_PLACES, key=f"place_{title}")
+        with c3: start = st.selectbox("開始", SLOTS[:-1], key=f"start_{title}")
+        with c4: end = st.selectbox("終了", SLOTS[1:], key=f"end_{title}")
         return sel_date, sel_place, start, end
 
     d1, p1, s1, e1 = hope_block("第1希望")
@@ -221,36 +205,31 @@ with user_tab:
 
     if st.button("送信する", type="primary", key="submit_button"):
         errors = []
-        if not group_name.strip():
-            errors.append("団体名は必須です。")
-        if not rep_name.strip():
-            errors.append("代表者氏名は必須です。")
-        if not faculty.strip():
-            errors.append("学部は必須です。")
-        if not email.strip():
-            errors.append("メールアドレスは必須です。")
-        if not phone.strip():
-            errors.append("電話番号は必須です。")
-
+        if not group_name.strip(): errors.append("団体名は必須です。")
+        if not rep_name.strip():   errors.append("代表者氏名は必須です。")
+        if not faculty.strip():    errors.append("学部は必須です。")
+        if not email.strip():      errors.append("メールアドレスは必須です。")
+        if not phone.strip():      errors.append("電話番号は必須です。")
         for idx, (s, e) in enumerate([(s1, e1), (s2, e2), (s3, e3)], start=1):
             if not validate_range(s, e):
                 errors.append(f"第{idx}希望の時間範囲が不正です（開始 < 終了）。")
-
         if errors:
             st.error("\n".join(errors))
         else:
             ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
             rows = [
-
                 [ts, group_name, rep_name, faculty, email, phone, d1, p1, s1, e1, 1, remarks],
                 [ts, group_name, rep_name, faculty, email, phone, d2, p2, s2, e2, 2, remarks],
                 [ts, group_name, rep_name, faculty, email, phone, d3, p3, s3, e3, 3, remarks],
-
             ]
             try:
                 append_rows(ws, rows)
-                st.success("送信しました。ご協力ありがとうございます！")
                 load_df.clear()
+                st.session_state["submitted"] = True
+                st.session_state["submitted_payload"] = (
+                    group_name, [(d1, p1, s1, e1, 1), (d2, p2, s2, e2, 2), (d3, p3, s3, e3, 3)]
+                )
+                st.rerun()
             except Exception as ex:
                 st.error(f"送信に失敗しました: {ex}")
 
@@ -263,57 +242,39 @@ with admin_tab:
         st.session_state["admin_msg"] = ""
 
     if st.session_state["admin_auth"]:
-        col_l, col_r = st.columns([1, 6])
-        with col_l:
-            if st.button("ログアウト", key="logout_button"):
-                st.session_state["admin_auth"] = False
-                st.session_state["admin_msg"] = "ログアウトしました。"
-        with col_r:
-            if st.session_state.get("admin_msg"):
-                st.info(st.session_state["admin_msg"])
-
+        if st.button("ログアウト", key="logout_button"):
+            st.session_state["admin_auth"] = False
+            st.session_state["admin_msg"] = "ログアウトしました。"
         df = load_df()
         st.subheader("データ一覧（最新）")
         st.dataframe(df, use_container_width=True)
-
         st.divider()
         st.subheader("Excel 出力（ガントチャート風）")
         selectable_dates = sorted(df["date"].dropna().unique().tolist()) if not df.empty else []
-        target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates, key="excel_dates")
-
+        target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates)
         if st.button("選択した日付のExcelを作成", key="excel_button"):
-            if not target_dates:
-                st.warning("対象日付がありません。")
-            else:
-                for d in target_dates:
-                    try:
-                        path = make_excel_by_date(df, d)
-                        with open(path, "rb") as f:
-                            st.download_button(
-                                label=f"{d} のExcelをダウンロード",
-                                file_name=path,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                data=f.read(),
-                                key=f"download_{d}"
-                            )
-                    except Exception as ex:
-                        st.error(f"{d} の生成に失敗: {ex}")
+            for d in target_dates:
+                try:
+                    path = make_excel_by_date(df, d)
+                    with open(path, "rb") as f:
+                        st.download_button(
+                            label=f"{d} のExcelをダウンロード",
+                            file_name=path,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            data=f.read(),
+                            key=f"download_{d}"
+                        )
+                except Exception as ex:
+                    st.error(f"{d} の生成に失敗: {ex}")
     else:
         st.info("管理画面を表示するにはパスワードが必要です。")
         pwd = st.text_input("管理パスワード", type="password", key="admin_pwd_input")
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            if st.button("ログイン", key="login_button"):
-                if not ADMIN_PASSWORD:
-                    st.error("管理パスワードが未設定です。Secrets に app.admin_password を設定してください。")
-                else:
-                    if pwd == ADMIN_PASSWORD:
-                        st.session_state["admin_auth"] = True
-                        st.session_state["admin_msg"] = "認証に成功しました。"
-                        st.rerun()
-                    else:
-                        st.error("パスワードが違います。")
-        with col2:
-            if st.button("キャンセル", key="cancel_button"):
-                st.session_state["admin_msg"] = ""
+        if st.button("ログイン", key="login_button"):
+            if not ADMIN_PASSWORD:
+                st.error("管理パスワードが未設定です。Secrets に app.admin_password を設定してください。")
+            elif pwd == ADMIN_PASSWORD:
+                st.session_state["admin_auth"] = True
+                st.session_state["admin_msg"] = "認証に成功しました。"
                 st.rerun()
+            else:
+                st.error("パスワードが違います。")
