@@ -291,10 +291,10 @@ with admin_tab:
                     if pwd == ADMIN_PASSWORD:
                         st.session_state["admin_auth"] = True
                         st.session_state["admin_msg"] = "認証に成功しました。"
-                        st.experimental_rerun()  # 認証後に画面を再描画して管理画面を表示
+                        st.rerun()  # 認証後に画面を再描画して管理画面を表示
                     else:
                         st.error("パスワードが違います。")
         with col2:
             if st.button("キャンセル"):
                 st.session_state["admin_msg"] = ""
-                st.experimental_rerun()
+                st.rerun()
