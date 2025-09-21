@@ -3,7 +3,6 @@ import hashlib
 from datetime import datetime
 from typing import List
 
-import numpy as np
 import pandas as pd
 import pytz
 import streamlit as st
@@ -75,16 +74,17 @@ def append_rows(ws, rows: list[list[str]]):
 
 @st.cache_data(ttl=30)
 def load_df() -> pd.DataFrame:
+    """シートからデータを読み込む。空でも安全。"""
     ws = get_worksheet()
-    records = ws.get_all_records()
-    df = pd.DataFrame(records)
-    if df.empty:
-
-        df = pd.DataFrame(columns=[
+    values = ws.get_all_values()
+    if not values:
+        return pd.DataFrame(columns=[
             "timestamp", "group_name", "rep_name", "faculty", "email", "phone",
             "date", "place", "start", "end", "priority", "remarks"
         ])
-
+    header, rows = values[0], values[1:]
+    df = pd.DataFrame(rows, columns=header)
+    # 型調整
     for c in ["date", "start", "end"]:
         if c in df.columns:
             df[c] = df[c].astype(str)
@@ -128,27 +128,20 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
 
             for _, rec in sub.iterrows():
                 start, end, pr = str(rec["start"]), str(rec["end"]), int(rec["priority"])
-
                 try:
                     start = pd.to_datetime(start).strftime("%H:%M")
                     end = pd.to_datetime(end).strftime("%H:%M")
                 except Exception:
                     continue
-
-
                 if not validate_range(start, end):
                     continue
                 try:
                     s_idx = SLOTS.index(start)
                     e_idx = SLOTS.index(end)
                 except ValueError:
-
                     continue
-
-
                 start_col = 2 + s_idx
                 end_col_exclusive = 2 + e_idx
-
                 for c in range(start_col, end_col_exclusive):
                     cell = ws.cell(row=r, column=c)
                     cell.fill = fill
@@ -195,13 +188,6 @@ with user_tab:
         key="remarks_input"
     )
 
-    remarks = st.text_area(
-    "希望理由・備考（任意）",
-    placeholder="希望理由や備考があれば入力してください",
-    height=120
-    )
-
-
     def hope_block(title: str):
         st.subheader(title)
         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
@@ -231,7 +217,6 @@ with user_tab:
             errors.append("メールアドレスは必須です。")
         if not phone.strip():
             errors.append("電話番号は必須です。")
-
         for idx, (s, e) in enumerate([(s1, e1), (s2, e2), (s3, e3)], start=1):
             if not validate_range(s, e):
                 errors.append(f"第{idx}希望の時間範囲が不正です（開始 < 終了）。")
@@ -241,11 +226,9 @@ with user_tab:
         else:
             ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
             rows = [
-
                 [ts, group_name, rep_name, faculty, email, phone, d1, p1, s1, e1, 1, remarks],
                 [ts, group_name, rep_name, faculty, email, phone, d2, p2, s2, e2, 2, remarks],
                 [ts, group_name, rep_name, faculty, email, phone, d3, p3, s3, e3, 3, remarks],
-
             ]
             try:
                 append_rows(ws, rows)
