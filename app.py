@@ -126,6 +126,14 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
 
             for _, rec in sub.iterrows():
                 start, end, pr = str(rec["start"]), str(rec["end"]), int(rec["priority"])
+                
+                try:
+                    start = pd.to_datetime(start).strftime("%H:%M")
+                    end = pd.to_datetime(end).strftime("%H:%M")
+                except Exception:
+                    # 時刻変換できないものはスキップ
+                    continue
+                
                 if not validate_range(start, end):
                     continue
                 # 開始・終了のスロット index（終了は“含めない”開区間）
@@ -133,8 +141,9 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
                     s_idx = SLOTS.index(start)
                     e_idx = SLOTS.index(end)
                 except ValueError:
-                    # 範囲外はスキップ
+                    print(f"[WARN] Slot not found: start={start}, end={end}, SLOTS[0]={SLOTS[0]}")
                     continue
+                
                 # Excel の列番号（A=1, B=2 ...）: B 列が SLOTS[0]
                 start_col = 2 + s_idx
                 end_col_exclusive = 2 + e_idx  # ここは含めない終端
