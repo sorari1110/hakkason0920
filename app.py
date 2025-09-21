@@ -75,7 +75,7 @@ def append_rows(ws, rows: list[list[str]]):
 
 @st.cache_data(ttl=30)
 def load_df() -> pd.DataFrame:
-    ws = get_worksheet()   # ここで取得
+    ws = get_worksheet()   
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
