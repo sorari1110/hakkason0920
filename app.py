@@ -88,7 +88,6 @@ def load_df() -> pd.DataFrame:
         df["priority"] = pd.to_numeric(df["priority"], errors="coerce").astype("Int64")
     return df
 
-
 def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
     """指定日のデータから、場所ごとにシートを作る Excel を生成し、ファイルパスを返す。"""
     df_day = df[df["date"] == date_str].copy()
@@ -148,7 +147,6 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
             for c in range(start_col, end_col_exclusive):
                 cell = ws.cell(row=r, column=c)
                 cell.fill = fill
-                # その行は1つの希望レコードなので、セルの値は優先度ラベルだけでよい
                 cell.value = f"第{int(pr)}希望" if pd.notnull(pr) else "希望"
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
@@ -214,13 +212,13 @@ with user_tab:
             try:
                 append_rows(ws, rows)
                 st.success("送信しました。ご協力ありがとうございます！")
-                load_df.clear()  # キャッシュ削除
+                load_df.clear()  
             except Exception as ex:
                 st.error(f"送信に失敗しました: {ex}")
 
 with admin_tab:
     st.subheader("データ一覧（最新）")
-    df = load_df()
+    df = load_df()   
     st.dataframe(df, use_container_width=True)
 
     st.divider()
