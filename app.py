@@ -162,7 +162,7 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
         ws.column_dimensions['A'].width = 18
         for col in range(2, len(SLOTS) + 2):
             col_letter = get_column_letter(col)
-            ws.column_dimensions[col_letter].width = 4.2
+            ws.column_dimensions[col_letter].width = 15     #列の幅を15にした元は4.2
 
     out_name = f"{date_str.replace('-', '')}.xlsx"
     wb.save(out_name)
@@ -177,11 +177,40 @@ ws = get_worksheet()
 user_tab, admin_tab = st.tabs(["📝 利用者フォーム", "🛠 管理（一覧・Excel出力）"])
 
 with user_tab:
+    # === 追加: 送信完了フラグと送信内容の保持 ===
+    if "submitted" not in st.session_state:                         # ← 追加
+        st.session_state["submitted"] = False                       # ← 追加
+        st.session_state["submitted_payload"] = None                # ← 追加  (name, [(d,p,s,e,pr), ...])
+
+    # === 追加: 送信完了画面（フォームを出す前に分岐） ===
+    if st.session_state["submitted"]:                               # ← 追加
+        st.success("送信が完了しました。ご協力ありがとうございます！")  # ← 追加
+
+        name_sent, hopes = st.session_state["submitted_payload"]    # ← 追加
+        st.write(f"**お名前：** {name_sent}")                       # ← 追加
+
+        # 送信内容を表で表示（第1〜第3希望）
+        df_sent = pd.DataFrame(                                     # ← 追加
+            [{"第": f"第{pr}希望", "日付": d, "場所": p, "開始": s, "終了": e}for (d, p, s, e, pr) in hopes]
+        )
+        st.dataframe(df_sent, use_container_width=True)             # ← 追加
+
+        st.divider()                                                # ← 追加
+        if st.button("新しい申請をする"):                           # ← 追加
+            # 過去の選択状態をクリアしてフォームへ戻る
+            for k in list(st.session_state.keys()):                 # ← 追加
+                if k.startswith(("date_", "place_", "start_", "end_")):
+                    del st.session_state[k]
+            st.session_state["submitted"] = False                   # ← 追加
+            st.session_state["submitted_payload"] = None            # ← 追加
+            st.rerun()                                              # ← 追加
+
+        st.stop()  # 完了画面を出して終了（以下のフォームは表示しない）  # ← 追加
+
+    # === ここから元のフォーム表示 ===
     st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。")
 
     name = st.text_input("お名前（必須）")
-
-
 
     def hope_block(title: str):
         st.subheader(title)
@@ -208,9 +237,7 @@ with user_tab:
         if not name_input:
             errors.append("お名前は必須です。")
         else:
-            ###多少変更した
-            #名前の重複チェック
-            #  ※ 正規化して比較（前後/連続スペース、全角→半角スペース、大小文字差を吸収）
+            # 名前の重複チェック（正規化して比較）
             def normalize_name(s:str) -> str:
                 s = str(s).strip().replace("　"," ")
                 s = " ".join(s.split())
@@ -224,6 +251,7 @@ with user_tab:
         for idx, (s, e) in enumerate([(s1, e1), (s2, e2), (s3, e3)], start=1):
             if not validate_range(s, e):
                 errors.append(f"第{idx}希望の時間範囲が不正です（開始 < 終了）。")
+
         if errors:
             st.error("\n".join(errors))
         else:
@@ -234,9 +262,17 @@ with user_tab:
                 [ts, name_input, d3, p3, s3, e3, 3],
             ]
             try:
-                append_rows(ws, rows)
-                st.success("送信しました。ご協力ありがとうございます！")
-                load_df.clear()  # キャッシュ削除
+                with st.spinner("送信中…"):                         # ← 追加（体感向上）
+                    append_rows(ws, rows)
+                load_df.clear()                                      # （元のまま）キャッシュ削除
+
+                # === 追加: 完了画面に必要な情報を保存してリロード ===
+                st.session_state["submitted"] = True                 # ← 追加
+                st.session_state["submitted_payload"] = (            # ← 追加
+                    name_input,
+                    [(d1, p1, s1, e1, 1), (d2, p2, s2, e2, 2), (d3, p3, s3, e3, 3)]
+                )
+                st.rerun()                                          # ← 追加（完了画面へ切替）
             except Exception as ex:
                 st.error(f"送信に失敗しました: {ex}")
 
