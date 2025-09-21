@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import hashlib
 from datetime import datetime
 from typing import List
@@ -76,8 +75,9 @@ def append_rows(ws, rows: list[list[str]]):
 
 
 @st.cache_data(ttl=30)
-def load_df() -> pd.DataFrame:
-    ws = get_worksheet()
+def load_df() -> pd.DataFrame:   ###多少変更した
+    ws = get_worksheet()  # ← ここで取得
+
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
@@ -113,44 +113,38 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # 希望時間別に行を分ける（同じ利用者でも第1〜第3希望は別行として表示）
-        df_p_sorted = df_p.sort_values(by=["user_name", "priority"]) if not df_p.empty else df_p
-        for r, rec in enumerate(df_p_sorted.itertuples(index=False), start=2):
-            user = getattr(rec, 'user_name', None)
-            start = str(getattr(rec, 'start', ''))
-            end = str(getattr(rec, 'end', ''))
-            pr = getattr(rec, 'priority', None)
+        # 対象利用者（この場所に希望を出した人）
+        users = df_p["user_name"].dropna().unique().tolist()
 
-            # 利用者セルに希望の優先順位を付与して別行で表示
-            if pd.notnull(pr):
-                label_name = f"{user} (第{int(pr)}希望)"
-            else:
-                label_name = user
-            ws.cell(row=r, column=1, value=label_name)
+        for r, user in enumerate(users, start=2):
+            ws.cell(row=r, column=1, value=user)
             ws.cell(row=r, column=1).alignment = Alignment(vertical="center")
 
-            # 塗りつぶし色は利用者名に基づく（名前が無ければ白）
-            user_color = name_to_color(user) if user else "#FFFFFF"
-            fill = PatternFill(start_color=user_color.replace('#', ''), end_color=user_color.replace('#', ''), fill_type="solid")
+            sub = df_p[df_p["user_name"] == user]
+            user_color = name_to_color(user)
+            fill = PatternFill(start_color=user_color.replace('#',''), end_color=user_color.replace('#',''), fill_type="solid")
 
-            if not validate_range(start, end):
-                continue
+            for _, rec in sub.iterrows():
+                start, end, pr = str(rec["start"]), str(rec["end"]), int(rec["priority"])
+                if not validate_range(start, end):
+                    continue
+                # 開始・終了のスロット index（終了は“含めない”開区間）
+                try:
+                    s_idx = SLOTS.index(start)
+                    e_idx = SLOTS.index(end)
+                except ValueError:
+                    # 範囲外はスキップ
+                    continue
+                # Excel の列番号（A=1, B=2 ...）: B 列が SLOTS[0]
+                start_col = 2 + s_idx
+                end_col_exclusive = 2 + e_idx  # ここは含めない終端
 
-            try:
-                s_idx = SLOTS.index(start)
-                e_idx = SLOTS.index(end)
-            except ValueError:
-                # 範囲外はスキップ
-                continue
-
-            start_col = 2 + s_idx
-            end_col_exclusive = 2 + e_idx
-
-            for c in range(start_col, end_col_exclusive):
-                cell = ws.cell(row=r, column=c)
-                cell.fill = fill
-                cell.value = f"第{int(pr)}希望" if pd.notnull(pr) else "希望"
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+                for c in range(start_col, end_col_exclusive):
+                    cell = ws.cell(row=r, column=c)
+                    cell.fill = fill
+                    label = f"第{pr}希望"
+                    cell.value = f"{cell.value},{label}" if cell.value else label
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
 
         # 罫線・列幅
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
@@ -233,7 +227,7 @@ with user_tab:
             try:
                 append_rows(ws, rows)
                 st.success("送信しました。ご協力ありがとうございます！")
-                load_df.clear()  
+                load_df.clear()  # キャッシュ削除
             except Exception as ex:
                 st.error(f"送信に失敗しました: {ex}")
 
