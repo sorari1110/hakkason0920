@@ -110,38 +110,45 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # 対象利用者（この場所に希望を出した人）
-        users = df_p["user_name"].dropna().unique().tolist()
+        # 希望時間別に行を分ける（同じ利用者でも第1〜第3希望は別行として表示）
+        df_p_sorted = df_p.sort_values(by=["user_name", "priority"]) if not df_p.empty else df_p
+        for r, rec in enumerate(df_p_sorted.itertuples(index=False), start=2):
+            user = getattr(rec, 'user_name', None)
+            start = str(getattr(rec, 'start', ''))
+            end = str(getattr(rec, 'end', ''))
+            pr = getattr(rec, 'priority', None)
 
-        for r, user in enumerate(users, start=2):
-            ws.cell(row=r, column=1, value=user)
+            # 利用者セルに希望の優先順位を付与して別行で表示
+            if pd.notnull(pr):
+                label_name = f"{user} (第{int(pr)}希望)"
+            else:
+                label_name = user
+            ws.cell(row=r, column=1, value=label_name)
             ws.cell(row=r, column=1).alignment = Alignment(vertical="center")
 
-            sub = df_p[df_p["user_name"] == user]
-            user_color = name_to_color(user)
-            fill = PatternFill(start_color=user_color.replace('#',''), end_color=user_color.replace('#',''), fill_type="solid")
+            # 塗りつぶし色は利用者名に基づく（名前が無ければ白）
+            user_color = name_to_color(user) if user else "#FFFFFF"
+            fill = PatternFill(start_color=user_color.replace('#', ''), end_color=user_color.replace('#', ''), fill_type="solid")
 
-            for _, rec in sub.iterrows():
-                start, end, pr = str(rec["start"]), str(rec["end"]), int(rec["priority"])
-                if not validate_range(start, end):
-                    continue
-                # 開始・終了のスロット index（終了は“含めない”開区間）
-                try:
-                    s_idx = SLOTS.index(start)
-                    e_idx = SLOTS.index(end)
-                except ValueError:
-                    # 範囲外はスキップ
-                    continue
-                # Excel の列番号（A=1, B=2 ...）: B 列が SLOTS[0]
-                start_col = 2 + s_idx
-                end_col_exclusive = 2 + e_idx  # ここは含めない終端
+            if not validate_range(start, end):
+                continue
 
-                for c in range(start_col, end_col_exclusive):
-                    cell = ws.cell(row=r, column=c)
-                    cell.fill = fill
-                    label = f"第{pr}希望"
-                    cell.value = f"{cell.value},{label}" if cell.value else label
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
+            try:
+                s_idx = SLOTS.index(start)
+                e_idx = SLOTS.index(end)
+            except ValueError:
+                # 範囲外はスキップ
+                continue
+
+            start_col = 2 + s_idx
+            end_col_exclusive = 2 + e_idx
+
+            for c in range(start_col, end_col_exclusive):
+                cell = ws.cell(row=r, column=c)
+                cell.fill = fill
+                # その行は1つの希望レコードなので、セルの値は優先度ラベルだけでよい
+                cell.value = f"第{int(pr)}希望" if pd.notnull(pr) else "希望"
+                cell.alignment = Alignment(horizontal="center", vertical="center")
 
         # 罫線・列幅
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
