@@ -1,4 +1,15 @@
 # -*- coding: utf-8 -*-
+"""
+施設利用希望フォーム（第1〜第3希望/必須）→ Google Sheets に蓄積 →
+管理画面から『日付ごとにファイル』『場所ごとにシート』構成の Excel を生成（ガントチャート風）。
+
+想定：
+- 時間軸は固定（例: 09:00〜18:00、15分刻み）
+- セル塗りつぶしは『利用者ごとに色分け』
+- セル内テキストは『第n希望』を表示
+
+必要パッケージ： streamlit, pandas, numpy, plotly, gspread, google-auth, openpyxl, pytz
+"""
 
 import hashlib
 from datetime import datetime
@@ -64,17 +75,20 @@ def name_to_color(name: str) -> str:
 def append_rows(ws, rows: list[list[str]]):
     ws.append_rows(rows, value_input_option="USER_ENTERED")
 
+@st.cache_data(ttl=30)
+def load_df() -> pd.DataFrame:   ###多少変更した
+    ws = get_worksheet()  # ← ここで取得
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
         df = pd.DataFrame(columns=["timestamp", "user_name", "date", "place", "start", "end", "priority"])
-    # 型調整
     for c in ["date", "start", "end"]:
         if c in df.columns:
             df[c] = df[c].astype(str)
     if "priority" in df.columns:
         df["priority"] = pd.to_numeric(df["priority"], errors="coerce").astype("Int64")
     return df
+
 
 def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
     """指定日のデータから、場所ごとにシートを作る Excel を生成し、ファイルパスを返す。"""
@@ -158,6 +172,8 @@ with user_tab:
 
     name = st.text_input("お名前（必須）")
 
+
+
     def hope_block(title: str):
         st.subheader(title)
         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
@@ -177,8 +193,25 @@ with user_tab:
 
     if st.button("送信する", type="primary"):
         errors = []
-        if not name.strip():
+
+        name_input = name.strip()
+
+        if not name_input:
             errors.append("お名前は必須です。")
+        else:
+            ###多少変更した
+            #名前の重複チェック
+            #  ※ 正規化して比較（前後/連続スペース、全角→半角スペース、大小文字差を吸収）
+            def normalize_name(s:str) -> str:
+                s = str(s).strip().replace("　"," ")
+                s = " ".join(s.split())
+                return s.lower()
+
+            existing_names = [r.get("user_name","") for r in ws.get_all_records()]
+            existing_norm = {normalize_name(n) for n in existing_names}
+            if normalize_name(name_input) in existing_norm:
+                errors.append(f"この名前「{name_input}」は既に登録されています。別の名前を入力してください。")
+
         for idx, (s, e) in enumerate([(s1, e1), (s2, e2), (s3, e3)], start=1):
             if not validate_range(s, e):
                 errors.append(f"第{idx}希望の時間範囲が不正です（開始 < 終了）。")
@@ -187,9 +220,9 @@ with user_tab:
         else:
             ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
             rows = [
-                [ts, name, d1, p1, s1, e1, 1],
-                [ts, name, d2, p2, s2, e2, 2],
-                [ts, name, d3, p3, s3, e3, 3],
+                [ts, name_input, d1, p1, s1, e1, 1],
+                [ts, name_input, d2, p2, s2, e2, 2],
+                [ts, name_input, d3, p3, s3, e3, 3],
             ]
             try:
                 append_rows(ws, rows)
@@ -200,7 +233,7 @@ with user_tab:
 
 with admin_tab:
     st.subheader("データ一覧（最新）")
-
+    df = load_df()
     st.dataframe(df, use_container_width=True)
 
     st.divider()
