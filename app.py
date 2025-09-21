@@ -124,10 +124,12 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
 
             for _, rec in sub.iterrows():
                 start, end, pr = str(rec["start"]), str(rec["end"]), int(rec["priority"])
+                
                 try:
                     start = pd.to_datetime(start).strftime("%H:%M")
                     end = pd.to_datetime(end).strftime("%H:%M")
                 except Exception:
+                    # 時刻変換できないものはスキップ
                     continue
                 
                 if not validate_range(start, end):
