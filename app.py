@@ -220,7 +220,7 @@ with user_tab:
 
 with admin_tab:
     st.subheader("データ一覧（最新）")
-    df = load_df(ws)
+    df = load_df()
     st.dataframe(df, use_container_width=True)
 
     st.divider()
