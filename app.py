@@ -1,15 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-施設利用希望フォーム（第1〜第3希望/必須）→ Google Sheets に蓄積 →
-管理画面から『日付ごとにファイル』『場所ごとにシート』構成の Excel を生成（ガントチャート風）。
-
-想定：
-- 時間軸は固定（例: 09:00〜18:00、15分刻み）
-- セル塗りつぶしは『利用者ごとに色分け』
-- セル内テキストは『第n希望』を表示
-
-必要パッケージ： streamlit, pandas, numpy, plotly, gspread, google-auth, openpyxl, pytz
-"""
 
 import hashlib
 from datetime import datetime
@@ -40,16 +29,26 @@ GSHEET_ID = APP_SECRETS.get("gsheet_id", "")
 # =============== Google Sheets 接続 ===============
 @st.cache_resource(show_spinner=False)
 def get_worksheet():
-    creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]))
-    scoped = creds.with_scopes(["https://www.googleapis.com/auth/spreadsheets"])
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
+    scoped = creds.with_scopes([
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ])
     gc = gspread.authorize(scoped)
-    sh = gc.open_by_key(GSHEET_ID)
+
+    try:
+        sh = gc.open_by_key(GSHEET_ID)
+    except Exception as ex:
+        st.error(f"スプレッドシートを開けませんでした。GSHEET_ID={GSHEET_ID}, Error={ex}")
+        raise
+
     try:
         ws = sh.worksheet("data")
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title="data", rows=1000, cols=10)
-        ws.append_row(["timestamp", "user_name", "date", "place", "start", "end", "priority"])  # ヘッダー
+        ws.append_row(["timestamp", "user_name", "date", "place", "start", "end", "priority"])
     return ws
+
 
 # =============== ユーティリティ ===============
 def time_slots(day_start: str, day_end: str, step_min: int = 15) -> List[str]:
@@ -75,9 +74,11 @@ def name_to_color(name: str) -> str:
 def append_rows(ws, rows: list[list[str]]):
     ws.append_rows(rows, value_input_option="USER_ENTERED")
 
+
 @st.cache_data(ttl=30)
 def load_df() -> pd.DataFrame:   ###多少変更した
     ws = get_worksheet()  # ← ここで取得
+
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
