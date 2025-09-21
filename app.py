@@ -17,7 +17,6 @@ from openpyxl.utils import get_column_letter
 # =============== 設定 ===============
 JST = pytz.timezone("Asia/Tokyo")
 
-# Secrets 読み込み（Streamlit Cloud の Secrets から）
 APP_SECRETS = st.secrets.get("app", {})
 ALLOWED_DATES: List[str] = list(APP_SECRETS.get("allowed_dates", ["2025-10-25"]))
 ALLOWED_PLACES: List[str] = list(APP_SECRETS.get("allowed_places", ["メインステージ"]))
@@ -52,7 +51,6 @@ def get_worksheet():
         ])
     return ws
 
-
 # =============== ユーティリティ ===============
 def time_slots(day_start: str, day_end: str, step_min: int = 15) -> List[str]:
     base = pd.to_datetime(f"2000-01-01 {day_start}")
@@ -75,7 +73,6 @@ def name_to_color(name: str) -> str:
 def append_rows(ws, rows: list[list[str]]):
     ws.append_rows(rows, value_input_option="USER_ENTERED")
 
-
 @st.cache_data(ttl=30)
 def load_df() -> pd.DataFrame:
     ws = get_worksheet()
@@ -94,7 +91,6 @@ def load_df() -> pd.DataFrame:
     if "priority" in df.columns:
         df["priority"] = pd.to_numeric(df["priority"], errors="coerce").astype("Int64")
     return df
-
 
 def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
     df_day = df[df["date"] == date_str].copy()
@@ -184,17 +180,20 @@ with user_tab:
     st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。\n"
                "時間は準備・撤収も含めて設定してください。")
 
-    group_name = st.text_input("団体名（必須）")
+    group_name = st.text_input("団体名（必須）", key="group_name_input")
 
     st.markdown("#### 代表者情報")
-    rep_name = st.text_input("代表者氏名（必須）")
-    faculty = st.text_input("学部（必須）")
-    email = st.text_input("メールアドレス（必須）")
-    phone = st.text_input("電話番号（必須）")
+    rep_name = st.text_input("代表者氏名（必須）", key="rep_name_input")
+    faculty  = st.text_input("学部（必須）", key="faculty_input")
+    email    = st.text_input("メールアドレス（必須）", key="email_input")
+    phone    = st.text_input("電話番号（必須）", key="phone_input")
 
-    remarks = st.text_area("希望理由・備考（任意）",
-                           placeholder="希望理由や備考があれば入力してください",
-                           height=120)
+    remarks = st.text_area(
+        "希望理由・備考（任意）",
+        placeholder="希望理由や備考があれば入力してください",
+        height=120,
+        key="remarks_input"
+    )
 
     remarks = st.text_area(
     "希望理由・備考（任意）",
@@ -220,7 +219,7 @@ with user_tab:
     d2, p2, s2, e2 = hope_block("第2希望")
     d3, p3, s3, e3 = hope_block("第3希望")
 
-    if st.button("送信する", type="primary"):
+    if st.button("送信する", type="primary", key="submit_button"):
         errors = []
         if not group_name.strip():
             errors.append("団体名は必須です。")
@@ -266,7 +265,7 @@ with admin_tab:
     if st.session_state["admin_auth"]:
         col_l, col_r = st.columns([1, 6])
         with col_l:
-            if st.button("ログアウト"):
+            if st.button("ログアウト", key="logout_button"):
                 st.session_state["admin_auth"] = False
                 st.session_state["admin_msg"] = "ログアウトしました。"
         with col_r:
@@ -280,9 +279,9 @@ with admin_tab:
         st.divider()
         st.subheader("Excel 出力（ガントチャート風）")
         selectable_dates = sorted(df["date"].dropna().unique().tolist()) if not df.empty else []
-        target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates)
+        target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates, key="excel_dates")
 
-        if st.button("選択した日付のExcelを作成"):
+        if st.button("選択した日付のExcelを作成", key="excel_button"):
             if not target_dates:
                 st.warning("対象日付がありません。")
             else:
@@ -295,6 +294,7 @@ with admin_tab:
                                 file_name=path,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 data=f.read(),
+                                key=f"download_{d}"
                             )
                     except Exception as ex:
                         st.error(f"{d} の生成に失敗: {ex}")
@@ -303,7 +303,7 @@ with admin_tab:
         pwd = st.text_input("管理パスワード", type="password", key="admin_pwd_input")
         col1, col2 = st.columns([1, 1])
         with col1:
-            if st.button("ログイン"):
+            if st.button("ログイン", key="login_button"):
                 if not ADMIN_PASSWORD:
                     st.error("管理パスワードが未設定です。Secrets に app.admin_password を設定してください。")
                 else:
@@ -314,6 +314,6 @@ with admin_tab:
                     else:
                         st.error("パスワードが違います。")
         with col2:
-            if st.button("キャンセル"):
+            if st.button("キャンセル", key="cancel_button"):
                 st.session_state["admin_msg"] = ""
                 st.rerun()
