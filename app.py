@@ -74,7 +74,8 @@ def append_rows(ws, rows: list[list[str]]):
     ws.append_rows(rows, value_input_option="USER_ENTERED")
 
 @st.cache_data(ttl=30)
-def load_df(ws) -> pd.DataFrame:
+def load_df() -> pd.DataFrame:
+    ws = get_worksheet()   # ここで取得
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
@@ -86,6 +87,7 @@ def load_df(ws) -> pd.DataFrame:
     if "priority" in df.columns:
         df["priority"] = pd.to_numeric(df["priority"], errors="coerce").astype("Int64")
     return df
+
 
 def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
     """指定日のデータから、場所ごとにシートを作る Excel を生成し、ファイルパスを返す。"""
