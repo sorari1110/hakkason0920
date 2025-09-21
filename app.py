@@ -3,7 +3,6 @@ import hashlib
 from datetime import datetime
 from typing import List
 
-import numpy as np
 import pandas as pd
 import pytz
 import streamlit as st
@@ -17,13 +16,13 @@ from openpyxl.utils import get_column_letter
 # =============== 設定 ===============
 JST = pytz.timezone("Asia/Tokyo")
 
-# Secrets 読み込み（Streamlit Cloud の Secrets から）
 APP_SECRETS = st.secrets.get("app", {})
 ALLOWED_DATES: List[str] = list(APP_SECRETS.get("allowed_dates", ["2025-10-25"]))
 ALLOWED_PLACES: List[str] = list(APP_SECRETS.get("allowed_places", ["メインステージ"]))
 DAY_START = APP_SECRETS.get("day_start", "09:00")
 DAY_END = APP_SECRETS.get("day_end", "18:00")
 GSHEET_ID = APP_SECRETS.get("gsheet_id", "")
+ADMIN_PASSWORD = APP_SECRETS.get("admin_password", "")
 
 # =============== Google Sheets 接続 ===============
 @st.cache_resource(show_spinner=False)
@@ -35,25 +34,21 @@ def get_worksheet():
     ])
     gc = gspread.authorize(scoped)
 
-    try:
-        sh = gc.open_by_key(GSHEET_ID)
-    except Exception as ex:
-        st.error(f"スプレッドシートを開けませんでした。GSHEET_ID={GSHEET_ID}, Error={ex}")
-        raise
-
+    sh = gc.open_by_key(GSHEET_ID)
     try:
         ws = sh.worksheet("data")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title="data", rows=1000, cols=10)
-        ws.append_row(["timestamp", "user_name", "date", "place", "start", "end", "priority"])
+        ws = sh.add_worksheet(title="data", rows=1000, cols=12)
+        ws.append_row([
+            "timestamp", "group_name", "rep_name", "faculty", "email", "phone",
+            "date", "place", "start", "end", "priority", "remarks"
+        ])
     return ws
-
 
 # =============== ユーティリティ ===============
 def time_slots(day_start: str, day_end: str, step_min: int = 15) -> List[str]:
     base = pd.to_datetime(f"2000-01-01 {day_start}")
     end = pd.to_datetime(f"2000-01-01 {day_end}")
-    # 端点ともに含む（例: 09:00, 09:15, ..., 18:00）
     return pd.date_range(base, end, freq=f"{step_min}min").strftime("%H:%M").tolist()
 
 SLOTS = time_slots(DAY_START, DAY_END, 15)
@@ -62,7 +57,6 @@ def validate_range(start: str, end: str) -> bool:
     return pd.to_datetime(start) < pd.to_datetime(end)
 
 def name_to_color(name: str) -> str:
-    """利用者名から安定した淡色 HEX を生成。"""
     palette = [
         "#CFE8FF", "#FFD6A5", "#B9FBC0", "#FFADAD", "#FDFFB6", "#A0C4FF",
         "#CAFFBF", "#9BF6FF", "#F1C0E8", "#BDB2FF", "#FFC6FF", "#E0F7FA",
@@ -73,15 +67,16 @@ def name_to_color(name: str) -> str:
 def append_rows(ws, rows: list[list[str]]):
     ws.append_rows(rows, value_input_option="USER_ENTERED")
 
-
 @st.cache_data(ttl=30)
-def load_df() -> pd.DataFrame:   ###多少変更した
-    ws = get_worksheet()  # ← ここで取得
-
+def load_df() -> pd.DataFrame:
+    ws = get_worksheet()
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
-        df = pd.DataFrame(columns=["timestamp", "user_name", "date", "place", "start", "end", "priority"])
+        df = pd.DataFrame(columns=[
+            "timestamp", "group_name", "rep_name", "faculty", "email", "phone",
+            "date", "place", "start", "end", "priority", "remarks"
+        ])
     for c in ["date", "start", "end"]:
         if c in df.columns:
             df[c] = df[c].astype(str)
@@ -89,9 +84,7 @@ def load_df() -> pd.DataFrame:   ###多少変更した
         df["priority"] = pd.to_numeric(df["priority"], errors="coerce").astype("Int64")
     return df
 
-
 def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
-    """指定日のデータから、場所ごとにシートを作る Excel を生成し、ファイルパスを返す。"""
     df_day = df[df["date"] == date_str].copy()
     if df_day.empty:
         raise ValueError("この日付のデータがありません。")
@@ -99,70 +92,59 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
     wb = Workbook()
     wb.remove(wb.active)
 
-    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'),
+                         top=Side(style='thin'), bottom=Side(style='thin'))
 
     for place in ALLOWED_PLACES:
         df_p = df_day[df_day["place"] == place].copy()
-        ws = wb.create_sheet(title=place[:31])  # シート名は31文字制限
+        ws = wb.create_sheet(title=place[:31])
 
-        # ヘッダー（A1=利用者, B1〜=時間スロット）
-        header = ["利用者"] + SLOTS
+        header = ["団体名"] + SLOTS
         ws.append(header)
         for col_idx in range(1, len(header) + 1):
             cell = ws.cell(row=1, column=col_idx)
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # 対象利用者（この場所に希望を出した人）
-        users = df_p["user_name"].dropna().unique().tolist()
-
+        users = df_p["group_name"].dropna().unique().tolist()
         for r, user in enumerate(users, start=2):
             ws.cell(row=r, column=1, value=user)
             ws.cell(row=r, column=1).alignment = Alignment(vertical="center")
 
-            sub = df_p[df_p["user_name"] == user]
+            sub = df_p[df_p["group_name"] == user]
             user_color = name_to_color(user)
-            fill = PatternFill(start_color=user_color.replace('#',''), end_color=user_color.replace('#',''), fill_type="solid")
+            fill = PatternFill(start_color=user_color.replace('#',''),
+                               end_color=user_color.replace('#',''),
+                               fill_type="solid")
 
             for _, rec in sub.iterrows():
                 start, end, pr = str(rec["start"]), str(rec["end"]), int(rec["priority"])
-                
                 try:
                     start = pd.to_datetime(start).strftime("%H:%M")
                     end = pd.to_datetime(end).strftime("%H:%M")
                 except Exception:
-                    # 時刻変換できないものはスキップ
                     continue
-                
                 if not validate_range(start, end):
                     continue
-                # 開始・終了のスロット index（終了は“含めない”開区間）
                 try:
                     s_idx = SLOTS.index(start)
                     e_idx = SLOTS.index(end)
                 except ValueError:
-                    print(f"[WARN] Slot not found: start={start}, end={end}, SLOTS[0]={SLOTS[0]}")
                     continue
-                
-                # Excel の列番号（A=1, B=2 ...）: B 列が SLOTS[0]
-                start_col = 2 + s_idx
-                end_col_exclusive = 2 + e_idx  # ここは含めない終端
-
-                for c in range(start_col, end_col_exclusive):
+                for c in range(2 + s_idx, 2 + e_idx):
                     cell = ws.cell(row=r, column=c)
                     cell.fill = fill
                     label = f"第{pr}希望"
                     cell.value = f"{cell.value},{label}" if cell.value else label
                     cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # 罫線・列幅
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row,
+                                min_col=1, max_col=ws.max_column):
             for cell in row:
                 cell.border = border_thin
         ws.column_dimensions['A'].width = 18
         for col in range(2, len(SLOTS) + 2):
-            col_letter = get_column_letter(col)
-            ws.column_dimensions[col_letter].width = 15     #列の幅を15にした元は4.2
+            ws.column_dimensions[get_column_letter(col)].width = 15  # 列幅修正
 
     out_name = f"{date_str.replace('-', '')}.xlsx"
     wb.save(out_name)
@@ -170,126 +152,107 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
 
 # =============== UI ===============
 st.set_page_config(page_title="施設利用希望フォーム", layout="wide")
-st.title("施設利用希望 収集・管理アプリ")
+st.title("大学祭発表団体募集フォーム")
 
 ws = get_worksheet()
 
 user_tab, admin_tab = st.tabs(["📝 利用者フォーム", "🛠 管理（一覧・Excel出力）"])
 
+# --- 利用者フォーム ---
 with user_tab:
-    # === 追加: 送信完了フラグと送信内容の保持 ===
-    if "submitted" not in st.session_state:                         # ← 追加
-        st.session_state["submitted"] = False                       # ← 追加
-        st.session_state["submitted_payload"] = None                # ← 追加  (name, [(d,p,s,e,pr), ...])
+    if "submitted" not in st.session_state:
+        st.session_state["submitted"] = False
+        st.session_state["submitted_payload"] = None
 
-    # === 追加: 送信完了画面（フォームを出す前に分岐） ===
-    if st.session_state["submitted"]:                               # ← 追加
-        st.success("送信が完了しました。ご協力ありがとうございます！")  # ← 追加
-
-        name_sent, hopes = st.session_state["submitted_payload"]    # ← 追加
-        st.write(f"**お名前：** {name_sent}")                       # ← 追加
-
-        # 送信内容を表で表示（第1〜第3希望）
-        df_sent = pd.DataFrame(                                     # ← 追加
-            [{"第": f"第{pr}希望", "日付": d, "場所": p, "開始": s, "終了": e}for (d, p, s, e, pr) in hopes]
+    if st.session_state["submitted"]:
+        st.success("送信が完了しました。ご協力ありがとうございます！")
+        name_sent, hopes = st.session_state["submitted_payload"]
+        st.write(f"**団体名：** {name_sent}")
+        df_sent = pd.DataFrame(
+            [{"第": f"第{pr}希望", "日付": d, "場所": p, "開始": s, "終了": e} for (d, p, s, e, pr) in hopes]
         )
-        st.dataframe(df_sent, use_container_width=True)             # ← 追加
-
-        st.divider()                                                # ← 追加
-        if st.button("新しい申請をする"):                           # ← 追加
-            # 過去の選択状態をクリアしてフォームへ戻る
-            for k in list(st.session_state.keys()):                 # ← 追加
+        st.dataframe(df_sent, use_container_width=True)
+        if st.button("新しい申請をする"):
+            for k in list(st.session_state.keys()):
                 if k.startswith(("date_", "place_", "start_", "end_")):
                     del st.session_state[k]
-            st.session_state["submitted"] = False                   # ← 追加
-            st.session_state["submitted_payload"] = None            # ← 追加
-            st.rerun()                                              # ← 追加
+            st.session_state["submitted"] = False
+            st.session_state["submitted_payload"] = None
+            st.rerun()
+        st.stop()
 
-        st.stop()  # 完了画面を出して終了（以下のフォームは表示しない）  # ← 追加
+    st.caption("※ 第1〜第3希望は必須です。時間は15分刻みで選択してください。\n準備・撤収も含めて設定してください。")
 
-    # === ここから元のフォーム表示 ===
-    st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。")
-
-    name = st.text_input("お名前（必須）")
+    group_name = st.text_input("団体名（必須）", key="group_name_input")
+    rep_name   = st.text_input("代表者氏名（必須）", key="rep_name_input")
+    faculty    = st.text_input("学部（必須）", key="faculty_input")
+    email      = st.text_input("メールアドレス（必須）", key="email_input")
+    phone      = st.text_input("電話番号（必須）", key="phone_input")
+    remarks    = st.text_area("希望理由・備考（任意）", height=120, key="remarks_input")
 
     def hope_block(title: str):
         st.subheader(title)
         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
-        with c1:
-            sel_date = st.selectbox("日付", ALLOWED_DATES, key=f"date_{title}")
-        with c2:
-            sel_place = st.selectbox("場所", ALLOWED_PLACES, key=f"place_{title}")
-        with c3:
-            start = st.selectbox("開始", SLOTS[:-1], key=f"start_{title}")
-        with c4:
-            end = st.selectbox("終了", SLOTS[1:], key=f"end_{title}")
+        with c1: sel_date = st.selectbox("日付", ALLOWED_DATES, key=f"date_{title}")
+        with c2: sel_place = st.selectbox("場所", ALLOWED_PLACES, key=f"place_{title}")
+        with c3: start = st.selectbox("開始", SLOTS[:-1], key=f"start_{title}")
+        with c4: end = st.selectbox("終了", SLOTS[1:], key=f"end_{title}")
         return sel_date, sel_place, start, end
 
     d1, p1, s1, e1 = hope_block("第1希望")
     d2, p2, s2, e2 = hope_block("第2希望")
     d3, p3, s3, e3 = hope_block("第3希望")
 
-    if st.button("送信する", type="primary"):
+    if st.button("送信する", type="primary", key="submit_button"):
         errors = []
-
-        name_input = name.strip()
-
-        if not name_input:
-            errors.append("お名前は必須です。")
-        else:
-            # 名前の重複チェック（正規化して比較）
-            def normalize_name(s:str) -> str:
-                s = str(s).strip().replace("　"," ")
-                s = " ".join(s.split())
-                return s.lower()
-
-            existing_names = [r.get("user_name","") for r in ws.get_all_records()]
-            existing_norm = {normalize_name(n) for n in existing_names}
-            if normalize_name(name_input) in existing_norm:
-                errors.append(f"この名前「{name_input}」は既に登録されています。別の名前を入力してください。")
-
+        if not group_name.strip(): errors.append("団体名は必須です。")
+        if not rep_name.strip():   errors.append("代表者氏名は必須です。")
+        if not faculty.strip():    errors.append("学部は必須です。")
+        if not email.strip():      errors.append("メールアドレスは必須です。")
+        if not phone.strip():      errors.append("電話番号は必須です。")
         for idx, (s, e) in enumerate([(s1, e1), (s2, e2), (s3, e3)], start=1):
             if not validate_range(s, e):
                 errors.append(f"第{idx}希望の時間範囲が不正です（開始 < 終了）。")
-
         if errors:
             st.error("\n".join(errors))
         else:
             ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
             rows = [
-                [ts, name_input, d1, p1, s1, e1, 1],
-                [ts, name_input, d2, p2, s2, e2, 2],
-                [ts, name_input, d3, p3, s3, e3, 3],
+                [ts, group_name, rep_name, faculty, email, phone, d1, p1, s1, e1, 1, remarks],
+                [ts, group_name, rep_name, faculty, email, phone, d2, p2, s2, e2, 2, remarks],
+                [ts, group_name, rep_name, faculty, email, phone, d3, p3, s3, e3, 3, remarks],
             ]
             try:
-                with st.spinner("送信中…"):                         # ← 追加（体感向上）
-                    append_rows(ws, rows)
-                load_df.clear()                                      # （元のまま）キャッシュ削除
-
-                # === 追加: 完了画面に必要な情報を保存してリロード ===
-                st.session_state["submitted"] = True                 # ← 追加
-                st.session_state["submitted_payload"] = (            # ← 追加
-                    name_input,
-                    [(d1, p1, s1, e1, 1), (d2, p2, s2, e2, 2), (d3, p3, s3, e3, 3)]
+                append_rows(ws, rows)
+                load_df.clear()
+                st.session_state["submitted"] = True
+                st.session_state["submitted_payload"] = (
+                    group_name, [(d1, p1, s1, e1, 1), (d2, p2, s2, e2, 2), (d3, p3, s3, e3, 3)]
                 )
-                st.rerun()                                          # ← 追加（完了画面へ切替）
+                st.rerun()
             except Exception as ex:
                 st.error(f"送信に失敗しました: {ex}")
 
+# --- 管理タブ（パスワード保護） ---
 with admin_tab:
-    st.subheader("データ一覧（最新）")
-    df = load_df()
-    st.dataframe(df, use_container_width=True)
+    st.subheader("管理（一覧・Excel出力）")
+    if "admin_auth" not in st.session_state:
+        st.session_state["admin_auth"] = False
+    if "admin_msg" not in st.session_state:
+        st.session_state["admin_msg"] = ""
 
-    st.divider()
-    st.subheader("Excel 出力（ガントチャート風）")
-    selectable_dates = sorted(df["date"].dropna().unique().tolist()) if not df.empty else []
-    target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates)
-
-    if st.button("選択した日付のExcelを作成"):
-        if not target_dates:
-            st.warning("対象日付がありません。")
-        else:
+    if st.session_state["admin_auth"]:
+        if st.button("ログアウト", key="logout_button"):
+            st.session_state["admin_auth"] = False
+            st.session_state["admin_msg"] = "ログアウトしました。"
+        df = load_df()
+        st.subheader("データ一覧（最新）")
+        st.dataframe(df, use_container_width=True)
+        st.divider()
+        st.subheader("Excel 出力（ガントチャート風）")
+        selectable_dates = sorted(df["date"].dropna().unique().tolist()) if not df.empty else []
+        target_dates = st.multiselect("作成する日付を選択", options=selectable_dates, default=selectable_dates)
+        if st.button("選択した日付のExcelを作成", key="excel_button"):
             for d in target_dates:
                 try:
                     path = make_excel_by_date(df, d)
@@ -299,6 +262,19 @@ with admin_tab:
                             file_name=path,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             data=f.read(),
+                            key=f"download_{d}"
                         )
                 except Exception as ex:
                     st.error(f"{d} の生成に失敗: {ex}")
+    else:
+        st.info("管理画面を表示するにはパスワードが必要です。")
+        pwd = st.text_input("管理パスワード", type="password", key="admin_pwd_input")
+        if st.button("ログイン", key="login_button"):
+            if not ADMIN_PASSWORD:
+                st.error("管理パスワードが未設定です。Secrets に app.admin_password を設定してください。")
+            elif pwd == ADMIN_PASSWORD:
+                st.session_state["admin_auth"] = True
+                st.session_state["admin_msg"] = "認証に成功しました。"
+                st.rerun()
+            else:
+                st.error("パスワードが違います。")
