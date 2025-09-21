@@ -81,7 +81,7 @@ def load_df() -> pd.DataFrame:   ###多少変更した
     records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
-        df = pd.DataFrame(columns=["timestamp", "user_name", "date", "place", "start", "end", "priority"])
+        df = pd.DataFrame(columns=["timestamp", "user_name", "date", "place", "start", "end", "priority", "remarks"])  # remarks追加
     for c in ["date", "start", "end"]:
         if c in df.columns:
             df[c] = df[c].astype(str)
@@ -181,7 +181,11 @@ with user_tab:
 
     name = st.text_input("お名前（必須）")
 
-
+    remarks = st.text_area(
+    "希望理由・備考（任意）",
+    placeholder="希望理由や備考があれば入力してください",
+    height=120
+    )
 
     def hope_block(title: str):
         st.subheader(title)
@@ -229,9 +233,9 @@ with user_tab:
         else:
             ts = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
             rows = [
-                [ts, name_input, d1, p1, s1, e1, 1],
-                [ts, name_input, d2, p2, s2, e2, 2],
-                [ts, name_input, d3, p3, s3, e3, 3],
+                [ts, name_input, d1, p1, s1, e1, 1, remarks],
+                [ts, name_input, d2, p2, s2, e2, 2, remarks],
+                [ts, name_input, d3, p3, s3, e3, 3, remarks],
             ]
             try:
                 append_rows(ws, rows)
