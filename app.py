@@ -69,14 +69,18 @@ def append_rows(ws, rows: list[list[str]]):
 
 @st.cache_data(ttl=30)
 def load_df() -> pd.DataFrame:
+    """シートからデータを読み込む。空でも安全。"""
     ws = get_worksheet()
-    records = ws.get_all_records()
-    df = pd.DataFrame(records)
-    if df.empty:
-        df = pd.DataFrame(columns=[
+    values = ws.get_all_values()
+    if not values:
+        return pd.DataFrame(columns=[
             "timestamp", "group_name", "rep_name", "faculty", "email", "phone",
             "date", "place", "start", "end", "priority", "remarks"
         ])
+    header, rows = values[0], values[1:]
+    df = pd.DataFrame(rows, columns=header)
+    # 型調整
+
     for c in ["date", "start", "end"]:
         if c in df.columns:
             df[c] = df[c].astype(str)
@@ -131,7 +135,11 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
                     e_idx = SLOTS.index(end)
                 except ValueError:
                     continue
-                for c in range(2 + s_idx, 2 + e_idx):
+
+                start_col = 2 + s_idx
+                end_col_exclusive = 2 + e_idx
+                for c in range(start_col, end_col_exclusive):
+
                     cell = ws.cell(row=r, column=c)
                     cell.fill = fill
                     label = f"第{pr}希望"
@@ -184,11 +192,21 @@ with user_tab:
     st.caption("※ 第1〜第3希望は必須です。時間は15分刻みで選択してください。\n準備・撤収も含めて設定してください。")
 
     group_name = st.text_input("団体名（必須）", key="group_name_input")
-    rep_name   = st.text_input("代表者氏名（必須）", key="rep_name_input")
-    faculty    = st.text_input("学部（必須）", key="faculty_input")
-    email      = st.text_input("メールアドレス（必須）", key="email_input")
-    phone      = st.text_input("電話番号（必須）", key="phone_input")
-    remarks    = st.text_area("希望理由・備考（任意）", height=120, key="remarks_input")
+
+
+    st.markdown("#### 代表者情報")
+    rep_name = st.text_input("代表者氏名（必須）", key="rep_name_input")
+    faculty  = st.text_input("学部（必須）", key="faculty_input")
+    email    = st.text_input("メールアドレス（必須）", key="email_input")
+    phone    = st.text_input("電話番号（必須）", key="phone_input")
+
+    remarks = st.text_area(
+        "希望理由・備考（任意）",
+        placeholder="希望理由や備考があれば入力してください",
+        height=120,
+        key="remarks_input"
+    )
+
 
     def hope_block(title: str):
         st.subheader(title)
@@ -205,11 +223,18 @@ with user_tab:
 
     if st.button("送信する", type="primary", key="submit_button"):
         errors = []
-        if not group_name.strip(): errors.append("団体名は必須です。")
-        if not rep_name.strip():   errors.append("代表者氏名は必須です。")
-        if not faculty.strip():    errors.append("学部は必須です。")
-        if not email.strip():      errors.append("メールアドレスは必須です。")
-        if not phone.strip():      errors.append("電話番号は必須です。")
+
+        if not group_name.strip():
+            errors.append("団体名は必須です。")
+        if not rep_name.strip():
+            errors.append("代表者氏名は必須です。")
+        if not faculty.strip():
+            errors.append("学部は必須です。")
+        if not email.strip():
+            errors.append("メールアドレスは必須です。")
+        if not phone.strip():
+            errors.append("電話番号は必須です。")
+
         for idx, (s, e) in enumerate([(s1, e1), (s2, e2), (s3, e3)], start=1):
             if not validate_range(s, e):
                 errors.append(f"第{idx}希望の時間範囲が不正です（開始 < 終了）。")
