@@ -171,7 +171,7 @@ def make_excel_by_date(df: pd.DataFrame, date_str: str) -> str:
 
 # =============== UI ===============
 st.set_page_config(page_title="施設利用希望フォーム", layout="wide")
-st.title("施設利用希望 収集・管理アプリ")
+st.title("大学祭発表団体募集フォーム")
 
 # Worksheet はここで一度取得（ユーザ送信時に使用）
 ws = get_worksheet()
@@ -179,7 +179,8 @@ ws = get_worksheet()
 user_tab, admin_tab = st.tabs(["📝 利用者フォーム", "🛠 管理（一覧・Excel出力）"])
 
 with user_tab:
-    st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。")
+    st.caption("※ 第1〜第3希望はすべて必須です。時間は15分刻みで選択してください。\n" 
+               "時間は準備・撤収も含めて設定してください。")
 
     name = st.text_input("お名前（必須）")
 
